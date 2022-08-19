@@ -29,3 +29,4 @@ jobs:
       with:
         files: 'cicd-template*'
         repo-token: ${{ secrets.GITHUB_TOKEN }}
+        release-tag: 'v1.0.2-alpha'
