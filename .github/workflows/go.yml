@@ -19,7 +19,7 @@ jobs:
         go-version: 1.18
 
     - name: Build
-      run: CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -o cicd-template main.go
+      run: CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -o cicd-template main.go 
 
     - name: Build-Windows
       run: CGO_ENABLED=0 GOOS=windows GO111MODULE=on GOARCH=amd64 go build -a -o cicd-template.exe main.go
@@ -28,7 +28,7 @@ jobs:
       uses: svenstaro/upload-release-action@v2
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: cicd-template
+        file: cicd-template*
         tag: v1.0.2-alpha
         overwrite: true
         body: "This is my release text"
