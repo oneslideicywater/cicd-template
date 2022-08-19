@@ -23,10 +23,13 @@ jobs:
 
     - name: Build-Windows
       run: CGO_ENABLED=0 GOOS=windows GO111MODULE=on GOARCH=amd64 go build -a -o cicd-template.exe main.go
-
-    - name: Release
-      uses: AButler/upload-release-assets@v2.0
+      
+    - name: Upload binaries to release
+      uses: svenstaro/upload-release-action@v2
       with:
-        files: 'main.go'
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-        release-tag: 'v1.0.2-alpha'
+        repo_token: ${{ secrets.GITHUB_TOKEN }}
+        file: cicd-template
+        tag: v1.0.2-alpha
+        overwrite: true
+        body: "This is my release text"
+
