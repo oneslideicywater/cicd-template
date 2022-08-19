@@ -32,4 +32,5 @@ jobs:
         tag: v1.0.2-alpha
         overwrite: true
         body: "This is my release text"
+        file_glob: true
 
