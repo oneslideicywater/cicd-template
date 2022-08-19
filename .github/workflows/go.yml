@@ -30,3 +30,4 @@ jobs:
       env:
         GHR_COMPRESS: .tar.gz
         GHR_PATH: cicd-template
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
