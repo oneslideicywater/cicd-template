@@ -27,6 +27,6 @@ jobs:
     - name: Release
       uses: AButler/upload-release-assets@v2.0
       with:
-        files: './cicd-template'
+        files: 'cicd-template'
         repo-token: ${{ secrets.GITHUB_TOKEN }}
         release-tag: 'v1.0.2-alpha'
