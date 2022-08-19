@@ -1,0 +1,58 @@
+name: demo-cicd
+namespace: cicd-dev
+# 构建失败时的邮件通知列表
+maintainers:
+  - lifengqian
+path: .
+# 环境变量，子模块可继承
+build-tool: maven
+env:
+  COMMON_VALUE: "http://gitlab.geoway.com/cicd-dev/kubernetes-cicd-common/-/raw/master/helm/common.yaml"
+modules:
+  - name: "metric-service"
+    path: metric-service
+    build-tool: maven
+    # 声明模块进行ci/cd的多个stage
+    stages:
+      # 构建docker镜像并保存版本服务器
+      - name: docker
+        shell:
+          - "docker build -t ${CURRENT_DOCKER_IMAGE_TAG} ."
+          - "docker push ${CURRENT_DOCKER_IMAGE_TAG}"
+          - "docker save ${CURRENT_DOCKER_IMAGE_TAG} > ${CURRENT_ARTIFACT_FILENAME}.tar"
+          - "mc cp ${CURRENT_ARTIFACT_FILENAME}.tar ${CURRENT_DOCKER_IMAGE_OBJECT_PATH}"
+      - name: helm
+        shell:
+          - "kubectl config use-context dev"
+          - "cd .helm; helm package ."
+          - "cd .helm; curl --data-binary \"@${CHART_NAME}-${CHART_VERSION}.tgz\" ${HELM_REGISTRY}/api/charts"
+          - "helm repo update geoway;helm upgrade -f ${COMMON_VALUE} --set image.name=${CURRENT_DOCKER_IMAGE_TAG} --set namespace=${NAMESPACE} ${APP_NAME} geoway/${CHART_NAME} --version ${CHART_VERSION} --install"
+
+    # 拷贝jar包
+    resources:
+      - name: "jar"
+        source: "target/*encrypted.jar"
+        dist: ""
+      - name: "lic"
+        source: "target/*encrypted.lic"
+        dist: ""
+      - name: "yml-application"
+        source: "target/classes/config/application.yml"
+        dist: "config"
+      - name: "yml-bootstrap"
+        source: "target/classes/config/bootstrap.yml"
+        dist: "config"
+      - name: "bash"
+        source: "deploy/bash/*.sh"
+        dist: ""
+      - name: "contrib"
+        source: "deploy/contrib/*.service"
+        dist: ""
+      - name: "wrapper"
+        source: "deploy/wrapper/*"
+        dist: ""
+      - name: "cwd"
+        source: "deploy/cwd/*"
+        dist: ""
+
+

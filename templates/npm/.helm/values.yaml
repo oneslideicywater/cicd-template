@@ -1,0 +1,35 @@
+# Default values for cicd-dev-metric-service.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+image:
+  name: dumb
+  pullPolicy: Always
+  # Overrides the image tag whose default is the chart appVersion.
+ 
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+env:
+  - name: RSMIS_GATEWAY_SERVICE_HOST
+    value: rsmis-gateway-service
+  - name: RSMIS_GATEWAY_SERVICE_PORT
+    value: '9003'
+  - name: TZ
+    value: Asia/Shanghai
+  - name: LC_ALL
+    value: en_US.UTF-8
+
+
+
+service:
+  type: NodePort
+  port: 80
+  nodePort: 31090
+
+
+
+

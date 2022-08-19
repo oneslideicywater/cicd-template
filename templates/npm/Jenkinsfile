@@ -1,0 +1,244 @@
+pipeline {
+   agent {
+     node {
+       label 'jenkins-agent'
+     }
+   }
+
+    triggers {
+        cron '0 4 * * *'
+
+    }
+
+
+    stages {
+        stage('Build') {
+            steps {
+             // git credentialsId: 'gitcloner', url: 'http://gitlab.geoway.com/cicd-dev/demo-cicd-vuejs.git'
+             container('jdk') {
+                script{
+                   def gitInfo=new org.cicd.GitInfo()
+                   gitInfo.parseGit()
+                   gitInfo.commonEnv()
+                }
+             }
+
+            }
+
+        }
+                // turn cicd.yaml into pipeline stages
+        stage('semantic-transformer') {
+            steps {
+                container('jdk') {
+                    script{
+                        def ci=new org.cicd.YamlCI()
+                        stage('interpret'){
+                            ci.step_log("Step 1. 解析cicd.yaml文件")
+                            datas = readYaml file: 'cicd.yaml'
+
+                            // parse mailing list
+                            if(datas.maintainers != null){
+                                 MAILING_LIST = ci.concatMailingList(datas.maintainers)
+                                 echo "[INFO]邮件发送人:"
+                                 println MAILING_LIST
+                            }
+                            if(datas.namespace == null){
+                                println "[ERROR]namespace required"
+                                sh 'exit 1'
+                            }
+                        }
+
+
+                        stage('module-build-order-sort'){
+                            // parse module infomation
+                            ci.step_log("Step 2. 模块进行拓扑排序")
+
+                            subs = ci.topologize(datas)
+
+                            // the topologize order result println
+                            echo "[模块构建顺序]:"
+                            def i = 1
+                            def seq =""
+                            for(sub in subs){
+                                seq= seq+"$i. [${sub.name}] \n"
+                                i++
+                            }
+                            println seq
+
+                        }
+
+
+                        stage('common-env'){
+                            // calculate environment map
+                            ci.step_log("Step 3. 公共变量获取")
+                            commonEnv= [:]
+                            sh 'env > env.txt'
+                            readFile('env.txt').split("\r?\n").each {
+                               def s= it
+                               def index= s.indexOf("=")
+                               if(index==-1){
+                                    println "[WARNING] multi-line env variable are not allowed, bad line:"+it
+                               }else{
+                                    def key=s.substring(0,index)
+                                    def value=s.substring(index+1)
+                                    commonEnv.put(key,value)
+                                    println "[INFO]"+key+"="+value
+                               }
+
+
+                            }
+
+
+                            env.NAMESPACE = datas.namespace
+                        }
+
+                        stage('batch-build-modules'){
+                            ci.step_log("Step 4: 模块构建")
+                            for(m in subs){
+
+                                echo "[INFO] 开始构建模块: ${m.name} "
+
+                                stage("${m.name}"){
+
+                                    // environment preparement
+                                    println "["+m.name+ "] SUB STEP: environment prepare"
+                                    if(m.path==null){
+                                        sh "[ERROR] module.path 缺失;exit 1;"
+                                    }
+                                    echo "[$m.name] 计算当前模块环境变量..."
+                                    def ENV = m.env
+                                    // calc
+                                    m.env = ci.merge(commonEnv,ENV)
+
+
+                                     // calculate docker tag
+                                    env.CURRENT_DOCKER_IMAGE_TAG=""
+                                    if(env.GIT_BRANCH=="master"){
+                                           env.CURRENT_DOCKER_IMAGE_TAG = env.CICD_DOCKER_REGISTRY+ "/"+ datas.namespace+"/"+ m.name+":"+ env.GIT_COMMIT_TAG
+                                    }
+                                    else{
+                                           env.CURRENT_DOCKER_IMAGE_TAG = env.CICD_DOCKER_REGISTRY+ "/"+ datas.namespace+"/"+ m.name+":"+ env.GIT_BRANCH +"-"+env.GIT_COMMIT_TAG
+                                    }
+                                    println "["+m.name+"][INFO] docker tag should be: "+ env.CURRENT_DOCKER_IMAGE_TAG
+
+                                   // calculate artifact filename
+                                   env.CURRENT_ARTIFACT_FILENAME = datas.namespace+"-"+m.name +"-"+ env.GIT_BRANCH +"-"+env.GIT_COMMIT_TAG
+                                   env.CURRENT_DOCKER_IMAGE_OBJECT_PATH=  env.MINIO_REGISTRY+"/release/"+env.NAMESPACE+"/images/"+ env.GIT_BRANCH +"/"+env.GIT_COMMIT_TAG+ "/"+env.CURRENT_ARTIFACT_FILENAME+".tar"
+                                   env.CURRENT_ARTIFACT_OBJECT_PATH=env.MINIO_REGISTRY+"/release/"+env.NAMESPACE+"/artifact/"+env.GIT_BRANCH +"/"+env.GIT_COMMIT_TAG
+
+                                   // helm environments
+                                   env.CHART_NAME=m.name
+                                   env.APP_NAME=m.name
+                                   env.HELM_REGISTRY="http://172.16.66.37:9080"
+
+                                   if(env.GIT_COMMIT_TAG=="latest"){
+                                       env.CHART_VERSION="0.0.0"
+                                   }else{
+                                       env.CHART_VERSION=env.GIT_COMMIT_TAG.replace("RELEASE","0")
+                                   }
+
+                                   sh "(test -d ${m.path}/.helm && (cd ${m.path}/.helm;sed -i 's/version: 0.0.0/version: ${env.CHART_VERSION}/' Chart.yaml)) || true"
+                                   sh "(test -d ${m.path}/.helm && (cd ${m.path}/.helm;sed -i 's/name: sample/name: ${env.APP_NAME}/' Chart.yaml)) || true"
+                                   sh "(test -d ${m.path}/.helm && (cd ${m.path}/.helm;echo namespace: ${env.NAMESPACE} >> values.yaml; echo imageName: ${env.CURRENT_DOCKER_IMAGE_TAG}>> values.yaml)) || true"
+                                    // run default code-analysis stage
+                                    println "["+m.name+ "] SUB STEP: static code analysis"
+
+                                    if(m["build-tool"] != null){
+                                        sh "cd ${m.path};pwd"
+                                        // maven project
+                                        if(m["build-tool"] == "maven"){
+                                             stage('maven-static-code-analysis') {
+                                                    withSonarQubeEnv( installationName: 'sonarqube-server') { // You can override the credential to be used
+                                                         sh "cd ${m.path};mvn clean verify sonar:sonar"
+                                                    }
+                                             }
+                                        }
+                                        // otherwise auto-detect language type
+                                        else{
+                                             stage('auto-detect-language-static-code-analysis') {
+                                                      def scannerHome = tool 'sonarqube-scanner';
+                                                       withSonarQubeEnv(installationName: 'sonarqube-server') { // If you have configured more than one global server connection, you can specify its name
+
+                                                            sh "cd ${m.path};echo sonar.projectKey=${m.name} > sonar-project.properties"
+                                                            sh "cd ${m.path};/var/lib/sonarqube/bin/sonar-scanner"
+                                                      }
+                                             }
+                                        }
+                                    }
+                                    else{
+                                        echo "[${m.name}][INFO] the 'build-tool' property not found,skip code anylysis"
+                                    }
+
+
+                                    // run yaml-defined stages
+                                    println "["+m.name+ "] SUB STEP: module sub stage execution"
+
+                                    if(m.stages != null){
+                                      // exec every stage in module
+                                      for(s in m.stages){
+                                           echo "[${m.name}][INFO]stage: ${s.name}"
+                                           stage("${s.name}"){
+                                               for(cmd in s.shell){
+
+                                                  // string substitution in cmd
+                                                   cmd = ci.substitute(cmd,m.env)
+                                                  // exec shell
+                                                   sh "cd ${m.path};${cmd}"
+                                               }
+                                           }
+                                      }
+                                    }
+                                    stage("${m.name}"+"-resource-copy"){
+                                         // copy resources
+                                        if(m.resources!=null){
+                                            for(rule in m.resources){
+                                                if(rule.source!=null && rule.name!=null && rule.dist!=null){
+
+                                                    sh "cd ${m.path};mkdir -p artifacts/${rule.dist}"
+
+                                                    sh "cd ${m.path};mkdir -p artifacts"
+                                                    sh "cd ${m.path};/bin/cp -rf ${rule.source} artifacts/${rule.dist}"
+                                                }else{
+                                                    echo "[${m.name}][ERROR]bad format in resources"
+                                                    sh "exit 1"
+                                                }
+                                            }
+                                            sh "cd ${m.path}; mv artifacts ${env.CURRENT_ARTIFACT_FILENAME}; tar czvf ${env.CURRENT_ARTIFACT_FILENAME}.tar.gz ${env.CURRENT_ARTIFACT_FILENAME}/"
+                                            sh "cd ${m.path}; mc cp ${env.CURRENT_ARTIFACT_FILENAME}.tar.gz ${env.CURRENT_ARTIFACT_OBJECT_PATH}/"
+
+                                        }
+
+
+                                    }
+
+
+                        }
+                            }
+
+
+                    }
+
+
+
+                    }
+                }
+            }
+            post{
+                success {
+                         echo "success build job"
+                         // build job: 'rsmis_rsmis-basic-service/master',propagate: true, wait: true
+                }
+                failure {
+                        script {
+                            def content=mailContent()
+
+                            // send email to developers
+                            echo "send email to mailing list[geoway.com.cn]: ${MAILING_LIST}"
+                            emailext body: "$content", subject: '$PROJECT_NAME - Build # $BUILD_NUMBER - $BUILD_STATUS!', to: "${MAILING_LIST}"
+                        }
+                }
+            }
+        }
+
+    }
+}

@@ -1,0 +1,32 @@
+name: demo-cicd-vuejs
+namespace: cicd-dev
+maintainers:
+  - lifengqian
+path: .
+resources:
+  - name: 'dist'
+    source: 'dist'
+    dist: ''
+stages:
+  # 打包
+  - name: package
+    shell:
+      - "npm install -g yarn --registry=https://registry.npm.taobao.org"
+      - "yarn config set registry https://registry.npm.taobao.org -g"
+      - "yarn config set sass_binary_site http://cdn.npm.taobao.org/dist/node-sass -g"
+      - "yarn && yarn run build"
+  # 构建docker镜像
+  - name: docker
+    shell:
+      - "docker build -t ${CURRENT_DOCKER_IMAGE_TAG} ."
+      - "docker push ${CURRENT_DOCKER_IMAGE_TAG}"
+      - "docker save ${CURRENT_DOCKER_IMAGE_TAG} > ${CURRENT_ARTIFACT_FILENAME}.tar"
+      - "mc cp ${CURRENT_ARTIFACT_FILENAME}.tar ${CURRENT_DOCKER_IMAGE_OBJECT_PATH}"
+  # helm chart & deployment
+  - name: helm
+    shell:
+      - "kubectl config use-context dev"
+      - "cd .helm; helm package ."
+      - "cd .helm; curl --data-binary \"@${CHART_NAME}-${CHART_VERSION}.tgz\" ${HELM_REGISTRY}/api/charts"
+      - "helm repo update geoway;helm upgrade --set image.name=${CURRENT_DOCKER_IMAGE_TAG} ${APP_NAME} geoway/${CHART_NAME} --version ${CHART_VERSION} --install"
+

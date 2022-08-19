@@ -1,0 +1,36 @@
+# main-app配置
+server {
+
+    listen 80;
+    server_name main-app;
+  
+    location /devServer/ {
+      proxy_pass http://${RSMIS_GATEWAY_SERVICE_HOST}:${RSMIS_GATEWAY_SERVICE_PORT}/;
+  
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "Upgrade";
+  
+      proxy_set_header Host $http_host;
+      proxy_set_header X-Real-IP $remote_addr; #保留代理之前的真实客户端ip
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; #记录代理过程
+  
+      proxy_cookie_path /devServer /;
+    }
+
+
+  
+    location / {
+      alias /usr/share/nginx/html/;
+      index index.html index.htm;
+    }
+  
+    location @router {
+      rewrite ^.*$ /index.html last;
+    }
+  
+    error_page 404 /404.html;
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+      root html;
+    }
+}
