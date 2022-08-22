@@ -1,4 +1,4 @@
-name: Go
+name: cicd-template
 
 on:
   push:
@@ -6,31 +6,71 @@ on:
   pull_request:
     branches: [ "main" ]
 
-jobs:
+# jobs:
 
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
+#   build:
+#     runs-on: ubuntu-latest
+#     steps:
+#     - uses: actions/checkout@v3
 
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.18
+#     - name: Set up Go
+#       uses: actions/setup-go@v3
+#       with:
+#         go-version: 1.18
 
-    - name: Build
-      run: CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -o cicd-template main.go &&  tar czvf cicd-template_linux_x64.tar.gz cicd-template
-    - name: Build-Windows
-      run: CGO_ENABLED=0 GOOS=windows GO111MODULE=on GOARCH=amd64 go build -a -o cicd-template.exe main.go && tar czvf cicd-template_win_x64.tar.gz cicd-template.exe
+#     - name: Build
+#       run: CGO_ENABLED=0 GOOS=linux GO111MODULE=on go build -a -o cicd-template main.go &&  tar czvf cicd-template_linux_x64.tar.gz cicd-template
+#     - name: Build-Windows
+#       run: CGO_ENABLED=0 GOOS=windows GO111MODULE=on GOARCH=amd64 go build -a -o cicd-template.exe main.go && tar czvf cicd-template_win_x64.tar.gz cicd-template.exe
  
       
-    - name: Upload binaries to release
-      uses: svenstaro/upload-release-action@v2
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: cicd-template*
-        tag: v1.0.2-alpha
-        overwrite: true
-        body: "This is my release text"
-        file_glob: true
+#     - name: Upload binaries to release
+#       uses: svenstaro/upload-release-action@v2
+#       with:
+#         repo_token: ${{ secrets.GITHUB_TOKEN }}
+#         file: cicd-template*
+#         tag: v1.0.2-alpha
+#         overwrite: true
+#         body: "This is my release text"
+#         file_glob: true
 
+
+
+# on:
+#   push:
+#     # run only against tags
+#     tags:
+#       - '*'
+
+permissions:
+  contents: write
+  # packages: write
+  # issues: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      -
+        name: Fetch all tags
+        run: git fetch --force --tags
+      -
+        name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+      -
+        name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v2
+        with:
+          # either 'goreleaser' (default) or 'goreleaser-pro'
+          distribution: goreleaser
+          version: latest
+          args: release --rm-dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
